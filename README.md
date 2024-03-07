@@ -13,4 +13,4 @@ default values:
 
 examples:
 - Simulate all HAs between -4h and 3h: `python simulateSB_HAs.py 2023.1.00578.S HD_16329_a_09_TM1`
-- Specify antenna configuration and HAs: `python simulateSB_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 -C c43-1 --min_HA 1 --max_HA 2--HA_step 0.2`
+- Specify antenna configuration and HAs: `python simulateSB_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 -C c43-1 --min_HA 1 --max_HA 2 --HA_step 0.2`
