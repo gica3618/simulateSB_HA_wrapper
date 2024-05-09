@@ -25,6 +25,8 @@ import sys
 from pathlib import Path
 import xml_reader
 
+print('remember to do "source ~ahirota/setupEnvCXY.sh" before running this script')
+
 parser = argparse.ArgumentParser()
 parser.add_argument('project_code_or_xml',type=str)
 parser.add_argument('sb_name',type=str,default='',nargs='?') #default takes care of the case where xml file is provided
@@ -111,8 +113,6 @@ def ask_yes_no_with_yes_as_default(question):
     else:
         assert answer in ('','y')
         return True
-
-print('remember to do "source ~ahirota/setupEnvCXY.sh" before running this script')
 
 log_folder = f'log_files_{args.project_code_or_xml}'
 if os.path.isdir(log_folder):
