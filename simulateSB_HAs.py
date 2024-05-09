@@ -23,6 +23,7 @@ import shutil
 import os
 import sys
 from pathlib import Path
+import xml_reader
 
 parser = argparse.ArgumentParser()
 parser.add_argument('project_code_or_xml',type=str)
@@ -30,19 +31,50 @@ parser.add_argument('sb_name',type=str,default='',nargs='?') #default takes care
 simulateSB_optional_arguments = {'array_config':'C','correlator':'c'}
 for optional_argument,short in simulateSB_optional_arguments.items():
     parser.add_argument(f"-{short}",dest=optional_argument)
-parser.add_argument('--min_HA',type=float,default=-4)
-parser.add_argument('--max_HA',type=float,default=3)
+parser.add_argument('--min_HA',type=float,default=None)
+parser.add_argument('--max_HA',type=float,default=None)
 parser.add_argument('--HA_step',type=float,default=1)
 args = parser.parse_args()
 
-assert args.min_HA < args.max_HA,'min_HA needs to be smaller than max_HA'
+if args.min_HA is not None and args.max_HA is not None:
+    assert args.min_HA < args.max_HA,'min_HA needs to be smaller than max_HA'
 assert args.HA_step > 0,'HA step needs to be larger than 0'
 
-HAs = [args.min_HA,]
+xml_was_provided = 'xml' in args.project_code_or_xml
+if xml_was_provided:
+    xml_file = xml_reader.OT_XML_File(args.project_code_or_xml)
+else:
+    xml_file = xml_reader.OT_XML_File.from_download(
+                            project_code=args.project_code_or_xml,SB=args.sb_name)
+
+rep_coord = xml_file.get_representative_coordinates()
+#DSA will consider the following HA limits:
+if rep_coord.dec.deg >= -5:
+    DSA_min_HA = -3
+    DSA_max_HA = 2
+else:
+    DSA_min_HA = -4
+    DSA_max_HA = 3
+
+if args.min_HA is None:
+    print(f'no min HA provided, thus adopting the min HA considered by DSA: {DSA_min_HA}h')
+    min_HA = DSA_min_HA
+else:
+    print(f'using user-provided min HA of {args.min_HA}h')
+    min_HA = args.min_HA
+if args.max_HA is None:
+    print(f'no max HA provided, thus adopting the max HA considered by DSA: {DSA_max_HA}h')
+    max_HA = DSA_max_HA
+else:
+    print(f'using user-provided max HA of {args.max_HA}h')
+    max_HA = args.max_HA
+print(f'HA step: {args.HA_step}h')
+
+HAs = [min_HA,]
 HA_counter = 1
 while True:
-    new_HA = args.min_HA + HA_counter*args.HA_step
-    if new_HA > args.max_HA:
+    new_HA = min_HA + HA_counter*args.HA_step
+    if new_HA > max_HA:
         break
     HAs.append(new_HA)
     HA_counter += 1
@@ -110,7 +142,7 @@ for HA in HAs:
         results.append(errormessage)
     else:
         results.append('success')
-    if 'xml' in args.project_code_or_xml:
+    if xml_was_provided:
         log_files_base = f'log_{args.project_code_or_xml}'
     else:
         log_files_base = f'log_{args.project_code_or_xml}_{args.sb_name}.xml'
@@ -124,9 +156,17 @@ for HA in HAs:
 for HA,result in zip(HAs,results):
     print(f'{HA}h: {result}')
 
+if not xml_was_provided:
+    print('deleting downloaded xml')
+    xml_filename = f'{args.project_code_or_xml}_{args.sb_name}.xml'
+    os.remove(xml_filename)
+sim_result_filename = 'SimulatedCalResultsData.dat'
+print(f'deleting {sim_result_filename}')
+os.remove(sim_result_filename)
+
 keep_log_files = ask_yes_no_with_yes_as_default('keep log files?')
 if not keep_log_files:
-    print('going to delete log files')
     shutil.rmtree(log_folder)
+    print('log files deleted')
 else:
     print(f'log files can be found in {log_folder}')
