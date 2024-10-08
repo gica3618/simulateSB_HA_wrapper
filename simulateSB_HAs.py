@@ -115,6 +115,8 @@ def ask_yes_no_with_yes_as_default(question):
         return True
 
 log_folder = f'log_files_{args.project_code_or_xml}'
+if args.sb_name != '':
+    log_folder += f'_{args.sb_name}'
 if os.path.isdir(log_folder):
     remove_existing_log_folder = ask_yes_no_with_yes_as_default(
                                     f'remove existing log files in {log_folder}?')
