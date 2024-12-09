@@ -36,6 +36,7 @@ for optional_argument,short in simulateSB_optional_arguments.items():
 parser.add_argument('--min_HA',type=float,default=None)
 parser.add_argument('--max_HA',type=float,default=None)
 parser.add_argument('--HA_step',type=float,default=1)
+parser.add_argument('--obs_date',type=str,default=None)
 args = parser.parse_args()
 
 if args.min_HA is not None and args.max_HA is not None:
@@ -130,6 +131,8 @@ os.mkdir(log_folder)
 results = []
 for HA in HAs:
     epoch = f'TRANSIT{HA:+}h'
+    if args.obs_date is not None:
+        epoch += f',{args.obs_date}'
     command = f'simulateSB.py {args.project_code_or_xml} {args.sb_name} {epoch}'
     for optional_argument,short in simulateSB_optional_arguments.items():
         value = vars(args)[optional_argument]
