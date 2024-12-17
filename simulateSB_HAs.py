@@ -22,8 +22,8 @@ import itertools
 import shutil
 import os
 import sys
-from pathlib import Path
 import xml_reader
+import glob
 
 print('remember to do "source ~ahirota/setupEnvCXY.sh" before running this script')
 
@@ -37,6 +37,7 @@ parser.add_argument('--min_HA',type=float,default=None)
 parser.add_argument('--max_HA',type=float,default=None)
 parser.add_argument('--HA_step',type=float,default=1)
 parser.add_argument('--obs_date',type=str,default=None)
+parser.add_argument('--writeQueryLog',action='store_true')
 args = parser.parse_args()
 
 if args.min_HA is not None and args.max_HA is not None:
@@ -120,13 +121,32 @@ if args.sb_name != '':
     log_folder += f'_{args.sb_name}'
 if os.path.isdir(log_folder):
     remove_existing_log_folder = ask_yes_no_with_yes_as_default(
-                                    f'remove existing log files in {log_folder}?')
+                                    f'remove existing log files in folder {log_folder}?')
     if remove_existing_log_folder:
         print(f'deleting folder {log_folder}')
         shutil.rmtree(log_folder)
     else:
         sys.exit('aborting, please remove or rename folder containing log files')
 os.mkdir(log_folder)
+
+if xml_was_provided:
+    log_files_base = f'log_{args.project_code_or_xml}'
+else:
+    log_files_base = f'log_{args.project_code_or_xml}_{args.sb_name}.xml'
+def get_log_files():
+    return glob.glob(f'{log_files_base}_*.txt')
+old_log_files = get_log_files()
+if len(old_log_files) > 0:
+    print('log files from previous run(s):')
+    for lf in old_log_files:
+        print(lf)
+    remove_log_files = ask_yes_no_with_yes_as_default('remove these log files?')
+    if remove_log_files:
+        for lf in old_log_files:
+            print(f'deleting {lf}')
+            os.remove(lf)
+    else:
+        sys.exit('aborting, please remove log files')
 
 results = []
 for HA in HAs:
@@ -138,6 +158,8 @@ for HA in HAs:
         value = vars(args)[optional_argument]
         if value is not None:
             command += f' -{short} {value}'
+    if args.writeQueryLog:
+        command += ' --writeQueryLog'
     print(f'executing command: {command}')
     output = subprocess.run(command,shell=True,universal_newlines=True,
                             stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -147,16 +169,11 @@ for HA in HAs:
         results.append(errormessage)
     else:
         results.append('success')
-    if xml_was_provided:
-        log_files_base = f'log_{args.project_code_or_xml}'
-    else:
-        log_files_base = f'log_{args.project_code_or_xml}_{args.sb_name}.xml'
-    log_files = [f'{log_files_base}_{ID}.txt' for ID in
-                 ('OSS_summary','OSS','scan_list')]
+    log_files = get_log_files()
+    HA_log_folder = os.path.join(log_folder,f'HA{HA:+}h')
+    os.mkdir(HA_log_folder)
     for log_file in log_files:
-        if os.path.isfile(log_file):
-            new_name = Path(log_file).stem + f'_HA{HA:+}h.txt'
-            os.rename(src=log_file,dst=os.path.join(log_folder,new_name))
+        shutil.move(src=log_file,dst=HA_log_folder)
 
 for HA,result in zip(HAs,results):
     print(f'{HA}h: {result}')
