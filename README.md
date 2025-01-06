@@ -2,9 +2,9 @@ remember to do `source ~ahirota/setupEnvCXY.sh` before running this script
 
 usage:
 
-- with project code: `python simulateSB_HAs.py <project code> <SB name> -C <array config> -c <correlator> --min_HA <min HA> --max_HA <max HA> --HA_step <HA step> --obs_date=<observation date>`
+- with project code: `python simulateSB_HAs.py <project code> <SB name> -C <array config> -c <correlator> --min_HA <min HA> --max_HA <max HA> --HA_step <HA step> --obs_date=<observation date> --writeQueryLog`
 
-- with xml: `python simulateSB_HAs.py <xml filename> -C <array config> -c <correlator> --min_HA <min HA> --max_HA <max HA> --HA_step <HA step> --obs_date=<observation date>`
+- with xml: `python simulateSB_HAs.py <xml filename> -C <array config> -c <correlator> --min_HA <min HA> --max_HA <max HA> --HA_step <HA step> --obs_date=<observation date> --writeQueryLog`
 
 default values:
 - `min_HA`: -3 if DEC > -5 deg, otherwise -4 (same as DSA)
@@ -12,7 +12,7 @@ default values:
 - `HA_step`: 1
 - `obs_date`: today
 
-You can also add the option --writeQueryLog to write calibrator query logs.
+If the option --writeQueryLog is specified, calibrator query logs saved to separate files.
 
 examples:
 - Simulate all HAs as considered by the DSA, with steps of 1h: `python simulateSB_HAs.py 2023.1.00578.S HD_16329_a_09_TM1`

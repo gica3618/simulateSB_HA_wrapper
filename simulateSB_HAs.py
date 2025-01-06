@@ -8,9 +8,11 @@ Created on Tue Jan 16 10:05:21 2024
 
 #usage of this script:
 # using project code: 
-# python simulateSB_HAs.py <project code> <SB name> -C <array config> -c <correlator> --min_HA <min HA> --max_HA <max HA> --HA_step <HA step>
+# python simulateSB_HAs.py <project code> <SB name> -C <array config> -c <correlator>
+# --min_HA <min HA> --max_HA <max HA> --HA_step <HA step> --obs_date <YYYY-MM-DD> --writeQueryLog
 # using xlm:
-# python simulateSB_HAs.py <xml filename> -C <array config> -c <correlator> --min_HA <min HA> --max_HA <max HA> --HA_step <HA step>
+# python simulateSB_HAs.py <xml filename> -C <array config> -c <correlator>
+# --min_HA <min HA> --max_HA <max HA> --HA_step <HA step> --obs_date <YYYY-MM-DD> --writeQueryLog
 
 #for reference, usage of simulateSB.py:
 # simulateSB.py <project code> <SB name> <EPOCH> -C <array config> -c <correlator>
