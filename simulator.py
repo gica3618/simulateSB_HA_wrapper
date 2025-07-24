@@ -274,7 +274,7 @@ class SBSimulation():
         for HA in self.HAs:
             epoch = f'TRANSIT{HA:+}h'
             if self.obs_date is not None:
-                epoch += f',{self.args.obs_date}'
+                epoch += f',{self.obs_date}'
             command = f'simulateSB.py {self.xml_file} {epoch}'
             for optional_argument,short in self.simulateSB_optional_arguments.items():
                 value = getattr(self,optional_argument)
