@@ -121,8 +121,9 @@ class OT_XML_File():
 class SBSimulation():
 
     simulateSB_optional_arguments = {'array_config':'C','correlator':'c'}
-    calibrator_query_identifiers = ['bandpass','check','phase','pointing',
-                                    'diffgain']
+    #the following list is in the order of how queries are conducted by OSS!
+    calibrator_query_identifiers = ['bandpass','phase','check','diffgain',
+                                    'pointing']
 
     def __init__(self,xml_file,log_folder,min_HA,max_HA,HA_step,obs_date,writeQueryLog,
                  array_config,correlator):
@@ -305,6 +306,10 @@ class SBSimulation():
     def summarize_available_calibrators(self):
         out_filename = os.path.join(self.log_folder,'available_calibrators.csv')
         calibrator_types = self.queried_calibrator_types()
+        #order the calibrator types according to the query order:
+        calibrator_types = sorted(
+                             calibrator_types,
+                             key=lambda x:self.calibrator_query_identifiers.index(x))
         with open(out_filename,'w') as file:
             file.write('HA,')
             file.write(','.join(calibrator_types))
@@ -394,6 +399,7 @@ class Simulation():
             xml_file = OT_XML_File.download_xml_file(
                               project_code=self.args.sim_request,
                               SB=SB_name,filename=self.get_xml_filename(SB_name=SB_name))
+            print(f'downloaded {xml_file}')
             self.xml_files = [xml_file,]
 
     def prepare_log_folders(self):
