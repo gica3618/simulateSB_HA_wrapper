@@ -122,8 +122,7 @@ class SBSimulation():
 
     simulateSB_optional_arguments = {'array_config':'C','correlator':'c'}
     #the following list is in the order of how queries are conducted by OSS!
-    calibrator_query_identifiers = ['bandpass','phase','check','diffgain',
-                                    'pointing']
+    calibrator_query_identifiers = ['diffgain','bandpass','phase','check']
 
     def __init__(self,xml_file,log_folder,min_HA,max_HA,HA_step,obs_date,writeQueryLog,
                  array_config,correlator):
@@ -222,7 +221,7 @@ class SBSimulation():
                 sys.exit('aborting, please remove log files')
 
     def get_cal_query_file_names(self):
-         return [f'{self.log_files_prefix}_{cal}.txt' for cal in
+         return [f'{self.log_files_prefix}_{cal}_1.txt' for cal in
                  self.calibrator_query_identifiers]
 
     def determine_available_calibrators(self):
