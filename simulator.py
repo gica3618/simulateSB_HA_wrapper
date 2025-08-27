@@ -122,7 +122,7 @@ class SBSimulation():
 
     simulateSB_optional_arguments = {'array_config':'C','correlator':'c'}
     #the following list is in the order of how queries are conducted by OSS!
-    calibrator_query_identifiers = ['diffgain','bandpass','phase','check']
+    calibrator_query_identifiers = ['diffgain','amplitude','bandpass','phase','check']
 
     def __init__(self,xml_file,log_folder,min_HA,max_HA,HA_step,obs_date,writeQueryLog,
                  array_config,correlator):
