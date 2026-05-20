@@ -13,7 +13,7 @@ usage:
   <br>`python simulate_HAs.py <aot filename> <array config> --min_HA <min HA> --max_HA <max HA> --HA_step <HA step> --obs_date=<observation date> --writeQueryLog`
   <br>Note that `<aot filename>` needs to end with .aot. Note also that `<array config>` will be used for all SBs.
 
-For the array configuration, the user can specify pre-defined configurations (e.g. 'TP', '7m', 'c43-1' to 'c43-10') or specify a configuration file (e.g. 'aca.cm10.pm3.cfg '). The user can also specify `default`. In that case, simulateSB.py will decide which configuration it will simulate.
+For the array configuration, the user can specify pre-defined configurations (e.g. 'TP', '7m', 'c43-1' to 'c43-10') or specify a configuration file (e.g. 'aca.cm10.pm3.cfg '). The user can also specify 'default'. In that case, simulateSB.py will decide which configuration it will simulate.
 
 If the option `--writeQueryLog` is specified, calibrator queries and an overview of available calibrators are saved into text files.
 
