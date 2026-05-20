@@ -15,6 +15,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 from astropy.coordinates import SkyCoord
 from astropy import units as u
+from pathlib import Path
 
 
 def ask_yes_no_with_yes_as_default(question):
@@ -27,6 +28,11 @@ def ask_yes_no_with_yes_as_default(question):
     else:
         assert answer in ('','y')
         return True
+
+def ask_question_exit_if_answer_no(question):
+    proceed = ask_yes_no_with_yes_as_default(question)
+    if not proceed:
+        sys.exit("exiting")
 
 
 class OT_XML_File():
@@ -117,15 +123,35 @@ class OT_XML_File():
     def get_SB_name(self):
         return self.find_unique_element('prj:name').text
 
+    def read_modeName(self):
+        return self.find_unique_element('sbl:modeName').text
+
+    def get_nominal_configurations(self):
+         configs = self.root.findall('sbl:SchedulingConstraints/sbl:nominalConfiguration',
+                                     namespaces=self.namespaces)
+         return [c.text for c in configs]
+
+    def read_RequiresTPAntennas(self):
+        text = self.root.findtext('sbl:SchedulingConstraints/sbl:sbRequiresTPAntennas',
+                                  namespaces=self.namespaces)
+        if text is None: #not found
+            return None
+        if text == 'true':
+            return True
+        elif text == 'false':
+            return False
+        else:
+            raise RuntimeError(f'unknown xml content for sbRequiresTPAntennas: {text}')
+
 
 class SBSimulation():
 
-    simulateSB_optional_arguments = {'array_config':'C','correlator':'c'}
+    #simulateSB_optional_arguments = {'array_config':'C','correlator':'c'}
     #the following list is in the order of how queries are conducted by OSS!
     calibrator_query_identifiers = ['diffgain','bandpass','phase','check']
 
     def __init__(self,xml_file,log_folder,min_HA,max_HA,HA_step,obs_date,writeQueryLog,
-                 array_config,correlator):
+                 array_config,check_array_config=True):
         self.xml_file = xml_file
         self.xml_data = OT_XML_File(filepath=xml_file)
         self.log_files_prefix = f'log_{xml_file}'
@@ -136,7 +162,42 @@ class SBSimulation():
         self.obs_date = obs_date
         self.writeQueryLog = writeQueryLog
         self.array_config = array_config
-        self.correlator = correlator
+        #self.correlator = correlator
+        if check_array_config:
+            self.check_array_config()
+
+    def check_array_config(self):
+        nominal_configs = self.xml_data.get_nominal_configurations()
+        if "7M" in nominal_configs:
+            self.check_7M_config()
+            return
+        if "TP" in nominal_configs:
+            self.check_TP_config()
+            return
+        self.check_12M_config(nominal_configs=nominal_configs)
+
+    def check_7M_config(self):
+        requires_TP = self.xml_data.read_RequiresTPAntennas()
+        if requires_TP and self.array_config in ("default","7M"):
+            ask_question_exit_if_answer_no(
+                           "WARNING: this 7M SB requires TP antennas, but requested "
+                           +f"configuration '{self.array_config}' does not include TP antennas. Proceed?")
+        if (not requires_TP) and "pm" in self.array_config:
+            ask_question_exit_if_answer_no(
+                   "WARNING: this 7M SB does not require TP antennas, but it looks like "
+                   +f"your requested configuration '{self.array_config}' might include TP. Proceed?")
+
+    def check_TP_config(self):
+        if self.array_config not in ("default", "TP"):
+            ask_question_exit_if_answer_no(
+                 f"Do you really wish to simulate this TP SB with array configuration '{self.array_config}?'")
+
+    def check_12M_config(self,nominal_configs):
+        if (self.array_config.capitalize() not in nominal_configs
+            and self.array_config != "default"):
+            ask_question_exit_if_answer_no(
+                f"Nominal configuration(s) of this SB: {nominal_configs}. Do "
+                f"you really wish to simulate with configuration '{self.array_config}'?")
 
     def run(self):
         self.determine_HAs_to_simulate()
@@ -275,10 +336,12 @@ class SBSimulation():
             if self.obs_date is not None:
                 epoch += f',{self.obs_date}'
             command = f'simulateSB.py {self.xml_file} {epoch}'
-            for optional_argument,short in self.simulateSB_optional_arguments.items():
-                value = getattr(self,optional_argument)
-                if value is not None:
-                    command += f' -{short} {value}'
+            if self.array_config != "default":
+                command += f' -C {self.array_config}'
+            # for optional_argument,short in self.simulateSB_optional_arguments.items():
+            #     value = getattr(self,optional_argument)
+            #     if value is not None:
+            #         command += f' -{short} {value}'
             if self.writeQueryLog:
                 command += ' --writeQueryLog'
             print(f'executing command: {command}')
@@ -343,15 +406,113 @@ class Simulation():
 
     sim_result_filename = 'SimulatedCalResultsData.dat'
 
-    def __init__(self,args):
+    def __init__(self, args):
         self.args = args
-        self.xml_was_provided = self.args.sim_request[-4:] == '.xml'
-        self.aot_was_provided = self.args.sim_request[-4:] == '.aot'
+        positional = args.positional_args
+        if len(positional) == 2:
+            self.handle_file_input(*positional)
+        elif len(positional) == 3:
+            self.handle_code_sb_input(*positional)
+        else:
+            raise ValueError("invalid number of positional arguments")
+        self.check_HA_args()
+        self.check_array_config()
+
+    def handle_file_input(self, filename, array_config):
+        self.array_config = array_config
+        suffix = Path(filename).suffix
+        if suffix == ".xml":
+            self.input_mode = "xml"
+            self.xml_files = [filename]
+        elif suffix == ".aot":
+            self.confirm_aot_usage()
+            self.input_mode = "aot"
+            self.xml_files = self.extract_xml_files_from_aot(filename)
+        else:
+            raise ValueError("invalid arguments")
+
+    def handle_code_sb_input(self, project_code, sb_name, array_config):
+        self.array_config = array_config
+        self.input_mode = "sb"
+        xml_filename = self.get_xml_filename(SB_name=sb_name)
+        xml_file = OT_XML_File.download_xml_file(
+            project_code=project_code,
+            SB=sb_name,
+            filename=xml_filename,
+        )
+        print(f"downloaded {xml_file}")
+        self.xml_files = [xml_file]
+
+    def confirm_aot_usage(self):
+        ask_question_exit_if_answer_no(
+            "ATTENTION: will use antenna configuration "
+            f'"{self.array_config}" for all SBs. '
+            "Do you want to proceed?"
+        )
+
+    def check_HA_args(self):
+        if self.args.min_HA is not None and self.args.max_HA is not None:
+            if self.args.min_HA >= self.args.max_HA:
+                raise ValueError('min_HA needs to be smaller than max_HA')
+        if self.args.HA_step <= 0:
+            raise ValueError('HA step needs to be larger than 0')
+
+    def check_array_config(self):
+        if self.array_config == "default":
+            print("user requests that simulateSB.py decides the array configuration to simulate")
+
+    # def array_config_for_simulation(self):
+    #     if self.array_config == "default":
+    #         print("user requests that simulateSB.py decides the array configuration to simulate")
+    #         return None
+    #     else:
+    #         return self.array_config
+
+    # def __init__(self,args):
+    #     self.args = args
+    #     self.xml_was_provided = False
+    #     self.aot_was_provided = False
+    #     if len(args.positional_args) == 2:
+    #         #case where xml or aot is provided (plus array config)
+    #         filename,self.array_config = args.positional_args
+    #         suffix = Path(filename).suffix
+    #         if suffix == ".xml":
+    #             self.xml_was_provided = True
+    #             self.xml_files = [filename,]
+    #             xml_filename, array_config = args
+    #         elif suffix == ".aot":
+    #             self.aot_was_provided = True
+    #             proceed = ask_yes_no_with_yes_as_default(
+    #                           'ATTENTION: will use antenna configuration'
+    #                           +f' {self.array_config} for all SBs. Do you'
+    #                           +' want to proceed?')
+    #             if not proceed:
+    #                 sys.exit('aborting')
+    #             self.xml_files = self.extract_xml_files_from_aot(filename)
+    #         else:
+    #             raise ValueError("only xml or aot files can be used")
+    #     elif len(args.positional_args) == 3:
+    #         #case where project code, SB name and array config are provided
+    #         project_code, sb_name, self.array_config = args.positional_args
+    #         xml_filename = self.get_xml_filename(SB_name=sb_name)
+    #         xml_file = OT_XML_File.download_xml_file(
+    #                           project_code=project_code,SB=sb_name,
+    #                           filename=xml_filename)
+    #         print(f'downloaded {xml_file}')
+    #         self.xml_files = [xml_file,]
+    #     else:
+    #         raise ValueError("invalid number of positional arguments")
+
+    def aot_was_provided(self):
+        return self.input_mode == "aot"
+
+    def xml_was_provided(self):
+        return self.input_mode == "xml"
 
     def run(self):
-        self.prepare_xml_files()
+        #self.prepare_xml_files()
         self.prepare_log_folders()
-        if self.aot_was_provided:
+        if self.aot_was_provided():
             self.prepare_summary_file()
         self.run_simulations()
         self.clean_up()
@@ -380,26 +541,26 @@ class Simulation():
         print(f'extracted following xml files: {output_xml_filenames}')
         return output_xml_filenames
 
-    def prepare_xml_files(self):
-        if self.xml_was_provided:
-            self.xml_files = [self.args.sim_request,]
-        elif self.aot_was_provided:
-            if self.args.array_config is not None:
-                proceed = ask_yes_no_with_yes_as_default(
-                              'ATTENTION: will use antenna configuration'
-                              +f' {self.args.array_config} for all SBs. Do you'
-                              +' want to proceed?')
-                if not proceed:
-                    sys.exit('aborting')
-            self.xml_files = self.extract_xml_files_from_aot(
-                                         self.args.sim_request)
-        else:
-            SB_name = self.args.sb_name
-            xml_file = OT_XML_File.download_xml_file(
-                              project_code=self.args.sim_request,
-                              SB=SB_name,filename=self.get_xml_filename(SB_name=SB_name))
-            print(f'downloaded {xml_file}')
-            self.xml_files = [xml_file,]
+    # def prepare_xml_files(self):
+    #     if self.xml_was_provided:
+    #         self.xml_files = [self.args.sim_request,]
+    #     elif self.aot_was_provided:
+    #         if self.args.array_config is not None:
+    #             proceed = ask_yes_no_with_yes_as_default(
+    #                           'ATTENTION: will use antenna configuration'
+    #                           +f' {self.args.array_config} for all SBs. Do you'
+    #                           +' want to proceed?')
+    #             if not proceed:
+    #                 sys.exit('aborting')
+    #         self.xml_files = self.extract_xml_files_from_aot(
+    #                                      self.args.sim_request)
+    #     else:
+    #         SB_name = self.args.sb_name
+    #         xml_file = OT_XML_File.download_xml_file(
+    #                           project_code=self.args.sim_request,
+    #                           SB=SB_name,filename=self.get_xml_filename(SB_name=SB_name))
+    #         print(f'downloaded {xml_file}')
+    #         self.xml_files = [xml_file,]
 
     def prepare_log_folders(self):
         self.log_folders = [f'log_files_{xml_file[:-4]}' for xml_file in self.xml_files]
@@ -415,7 +576,7 @@ class Simulation():
             os.mkdir(log_folder)
 
     def prepare_summary_file(self):
-        self.summary_filename = f'{self.args.sim_request}_simulation_summary.txt'
+        self.summary_filename = f'{self.args.positional_args[0]}_simulation_summary.txt'
         if os.path.exists(self.summary_filename):
             print(f'deleting {self.summary_filename}')
             os.remove(self.summary_filename)
@@ -423,21 +584,24 @@ class Simulation():
     def run_simulations(self):
         for xml_file,log_folder in zip(self.xml_files,self.log_folders):
             print(f'going to run simulations of {xml_file}')
-            if self.aot_was_provided:
+            if self.aot_was_provided():
                 with open(self.summary_filename,'a') as file:
                     file.write(f'\n{xml_file}\n')
+            #If aot file was provided, I just ask about the array config at the start,
+            #and not for each SB again:
+            check_array_config = not self.aot_was_provided()
             sim = SBSimulation(
                         xml_file=xml_file,log_folder=log_folder,min_HA=self.args.min_HA,
                         max_HA=self.args.max_HA,HA_step=self.args.HA_step,
                         obs_date=self.args.obs_date,writeQueryLog=self.args.writeQueryLog,
-                        array_config=self.args.array_config,correlator=self.args.correlator)
+                        array_config=self.array_config,check_array_config=check_array_config)
             sim.run()
-            if self.aot_was_provided:
+            if self.aot_was_provided():
                 sim.append_results_to_file(filename=self.summary_filename)
             print('\n------------------------------------------\n')
 
     def clean_up(self):
-        if not self.xml_was_provided:
+        if not self.xml_was_provided():
             for xml_file in self.xml_files:
                 os.remove(xml_file)
                 print(f'deleted {xml_file}')
@@ -448,12 +612,12 @@ class Simulation():
             for log_folder in self.log_folders:
                 shutil.rmtree(log_folder)
                 print(f'deleted {log_folder}')
-            if self.aot_was_provided:
+            if self.aot_was_provided():
                 os.remove(self.summary_filename)
         else:
             print('log files can be found in following folder(s)): '
                   +f'{", ".join(self.log_folders)}')
-            if self.aot_was_provided:
+            if self.aot_was_provided():
                 print(f'summary file: {self.summary_filename}')
 
 

@@ -28,22 +28,13 @@ import simulator
 print('remember to do "source ~ahirota/setupEnvCXY.sh" before running this script')
 
 parser = argparse.ArgumentParser()
-parser.add_argument('sim_request',type=str)
-#default takes care of the case where xml file is provided:
-parser.add_argument('sb_name',type=str,default='',nargs='?')
-for optional_argument,short in\
-                    simulator.SBSimulation.simulateSB_optional_arguments.items():
-    parser.add_argument(f"-{short}",dest=optional_argument)
+parser.add_argument("positional_args", nargs="+")
 parser.add_argument('--min_HA',type=float,default=None)
 parser.add_argument('--max_HA',type=float,default=None)
 parser.add_argument('--HA_step',type=float,default=1)
 parser.add_argument('--obs_date',type=str,default=None)
 parser.add_argument('--writeQueryLog',action='store_true')
 args = parser.parse_args()
-
-if args.min_HA is not None and args.max_HA is not None:
-    assert args.min_HA < args.max_HA,'min_HA needs to be smaller than max_HA'
-assert args.HA_step > 0,'HA step needs to be larger than 0'
 
 sim = simulator.Simulation(args=args)
 sim.run()
