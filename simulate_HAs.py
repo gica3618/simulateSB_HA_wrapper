@@ -9,16 +9,15 @@ Created on Tue Jan 16 10:05:21 2024
 #usage of this script:
 
 # using project code: 
-# python simulateSB_HAs.py <project code> <SB name> -C <array config> -c <correlator>
+# python simulateSB_HAs.py <project code> <SB name> <array config>
 # --min_HA <min HA> --max_HA <max HA> --HA_step <HA step> --obs_date <YYYY-MM-DD> --writeQueryLog
 
 # using xml (note that the file needs to end in .xml)
-# python simulateSB_HAs.py <xml filename> -C <array config> -c <correlator>
+# python simulateSB_HAs.py <xml filename> <array config>
 # --min_HA <min HA> --max_HA <max HA> --HA_step <HA step> --obs_date <YYYY-MM-DD> --writeQueryLog
 
-#using aot to simulate all SBs of a project (file needs to end in .aot;
-# also, you cannot specify the configuration)
-# python simulateSB_HAs.py <aot filename> -c <correlator> --min_HA <min HA> 
+#using aot to simulate all SBs of a project (file needs to end in .aot)
+# python simulateSB_HAs.py <aot filename> <array_config> --min_HA <min HA> 
 # --max_HA <max HA> --HA_step <HA step> --obs_date <YYYY-MM-DD> --writeQueryLog
 
 
