@@ -1,4 +1,4 @@
-remember to do `source ~ahirota/setupEnvCXY.sh` before running this script
+remember to do `source ~ahirota/setupEnvCXY.sh` before running this script (replace 'XY' by the cyle number, e.g. setupEnvC12.sh)
 
 usage:
 

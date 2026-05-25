@@ -335,16 +335,15 @@ class SBSimulation():
             epoch = f'TRANSIT{HA:+}h'
             if self.obs_date is not None:
                 epoch += f',{self.obs_date}'
-            command = f'simulateSB.py {self.xml_file} {epoch}'
+            command = ["simulateSB.py", self.xml_file,epoch]
             if self.array_config != "default":
-                command += f' -C {self.array_config}'
+                command += ["-C", self.array_config]
             if self.writeQueryLog:
-                command += ' --writeQueryLog'
-            print(f'executing command: {command}')
-            output = subprocess.run(command,shell=True,universal_newlines=True,
-                                    stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-            if output.returncode != 0:
-                pipes = {'stdout':output.stdout,'stderr':output.stderr}
+                command.append('--writeQueryLog')
+            print(f'executing command: {" ".join(command)}')
+            process = subprocess.run(command,text=True,capture_output=True)
+            if process.returncode != 0:
+                pipes = {'stdout':process.stdout,'stderr':process.stderr}
                 errormessage = self.identify_error(pipes=pipes)
                 self.results.append(errormessage)
             else:
