@@ -1,6 +1,6 @@
-remember to do `source ~ahirota/setupEnvCXY.sh` before running this script (replace 'XY' by the cyle number, e.g. setupEnvC12.sh)
+# Usage
 
-usage:
+remember to do `source ~ahirota/setupEnvCXY.sh` before running this script (replace 'XY' by the cycle number, e.g. setupEnvC12.sh)
 
 - with project code and SB name:
   <br>`python simulate_HAs.py <project code> <SB name> <array config> --min_HA <min HA> --max_HA <max HA> --HA_step <HA step> --obs_date=<observation date> --writeQueryLog`
@@ -28,3 +28,13 @@ examples:
 - Specify antenna configuration and HA range (from 1h to 2h in steps of 0.2h): `python simulate_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 c43-1 --min_HA 1 --max_HA 2 --HA_step 0.2`
 - Specify a particular date of observation and save calibrator query information: `python simulate_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 c43-5 --obs_date=2024-11-08 --writeQueryLog`
 - Simulate all SBs of a project and save calibrator query information. Let simulateSB.py decide the array configuration for each SB: `python simulate_HAs.py 2023.1.00578.S.aot default --writeQueryLog`
+
+# Make the script runnable from anywhere
+If you want to be able to run the wrapper from anywhere (not just from the directory containing the two python files), proceed as follows:
+1. Place the two python files (simulate_HAs.py and simulator.py) into a dedicated directory, for example simulateSB_HA_wrapper
+2. Make simulate_HAs.py executable: `chmod +x simulate_HAs.py`
+3. Add the directory containing the two python files to your PATH. To do this, add the following lines to your .bash_profile file (this file is found in your home directory on OSS):
+    1. `PATH="$HOME/simulateSB_HA_wrapper:$PATH"` (assuming the directory simulateSB_HA_wrapper is in your home directory)
+    2. `export PATH` (this line might already be there)
+
+From next time you log into OSS, you will be able to run the wrapper from anywhere. Just be sure to replace `python simulate_HAs.py` by simply `simulate_HAs.py` (for example,  `simulate_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 c43-3`)
