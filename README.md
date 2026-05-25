@@ -29,7 +29,7 @@ examples:
 - Specify a particular date of observation and save calibrator query information: `python simulate_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 c43-5 --obs_date=2024-11-08 --writeQueryLog`
 - Simulate all SBs of a project and save calibrator query information. Let simulateSB.py decide the array configuration for each SB: `python simulate_HAs.py 2023.1.00578.S.aot default --writeQueryLog`
 
-# Make the script runnable from anywhere
+# Make the wrapper runnable from anywhere
 If you want to be able to run the wrapper from anywhere (not just from the directory containing the two python files), proceed as follows:
 1. Place the two python files (simulate_HAs.py and simulator.py) into a dedicated directory, for example simulateSB_HA_wrapper
 2. Make simulate_HAs.py executable: `chmod +x simulate_HAs.py`
