@@ -10,12 +10,17 @@ import itertools
 import os
 import shutil
 import sys
-import glob
 import subprocess
 import xml.etree.ElementTree as ET
 from astropy.coordinates import SkyCoord
 from astropy import units as u
 from pathlib import Path
+import tempfile
+from concurrent.futures import ProcessPoolExecutor
+
+
+#the following list is in the order of how queries are conducted by OSS!
+calibrator_query_identifiers = ['diffgain','bandpass','phase','check']
 
 
 def ask_yes_no_with_yes_as_default(question):
@@ -26,13 +31,27 @@ def ask_yes_no_with_yes_as_default(question):
     if answer == 'n':
         return False
     else:
-        assert answer in ('','y')
+        if answer not in ('','y'):
+            raise RuntimeError("unexpected answer")
         return True
 
 def ask_question_exit_if_answer_no(question):
     proceed = ask_yes_no_with_yes_as_default(question)
     if not proceed:
         sys.exit("exiting")
+
+def xml_filename(SB):
+    return f'{SB}.xml'
+
+
+class WorkFolder:
+
+    def __enter__(self):
+        self.path = Path(tempfile.mkdtemp(prefix="sb_sim_"))
+        return self.path
+
+    def __exit__(self, exc_type, exc, tb):
+        shutil.rmtree(self.path)
 
 
 class OT_XML_File():
@@ -85,16 +104,16 @@ class OT_XML_File():
         return xml_str
 
     @staticmethod
-    def download_xml_file(project_code,SB,filename=None):
+    def download_xml_file(project_code,SB,filepath=None):
         xml_str = OT_XML_File.download_xml_str(project_code=project_code,SB=SB)
-        if filename is None:
-            filename = f'{SB}.xml'
-        if os.path.exists(filename):
-            raise RuntimeError(f'error downloading {filename}, already'
+        if filepath is None:
+            filepath = Path(xml_filename(SB=SB))
+        if filepath.is_file():
+            raise RuntimeError(f'error downloading {filepath}, already'
                                +' exists; please delete')
-        with open(filename,"w") as file:
+        with open(filepath,"w") as file:
             file.write(xml_str)
-        return filename
+        return filepath
 
     @classmethod
     def from_download(cls,project_code,SB):
@@ -144,101 +163,64 @@ class OT_XML_File():
             raise RuntimeError(f'unknown xml content for sbRequiresTPAntennas: {text}')
 
 
-class SBSimulation():
+class SingleHASimulation:
 
-    #simulateSB_optional_arguments = {'array_config':'C','correlator':'c'}
-    #the following list is in the order of how queries are conducted by OSS!
-    calibrator_query_identifiers = ['diffgain','bandpass','phase','check']
-
-    def __init__(self,xml_file,log_folder,min_HA,max_HA,HA_step,obs_date,writeQueryLog,
-                 array_config,check_array_config=True):
-        self.xml_file = xml_file
-        self.xml_data = OT_XML_File(filepath=xml_file)
-        self.log_files_prefix = f'log_{xml_file}'
-        self.log_folder = log_folder
-        self.min_HA = min_HA
-        self.max_HA = max_HA
-        self.HA_step = HA_step
+    def __init__(self,HA,xml_path,array_config,obs_date,writeQueryLog,log_folder):
+        self.HA = HA
+        self.xml_path = xml_path
+        self.array_config = array_config
         self.obs_date = obs_date
         self.writeQueryLog = writeQueryLog
-        self.array_config = array_config
-        #self.correlator = correlator
-        if check_array_config:
-            self.check_array_config()
-
-    def check_array_config(self):
-        nominal_configs = self.xml_data.get_nominal_configurations()
-        if "7M" in nominal_configs:
-            self.check_7M_config()
-            return
-        if "TP" in nominal_configs:
-            self.check_TP_config()
-            return
-        self.check_12M_config(nominal_configs=nominal_configs)
-
-    def check_7M_config(self):
-        requires_TP = self.xml_data.read_RequiresTPAntennas()
-        if requires_TP and self.array_config in ("default","7M"):
-            ask_question_exit_if_answer_no(
-                           "WARNING: this 7M SB requires TP antennas, but requested "
-                           +f"configuration '{self.array_config}' does not include TP antennas. Proceed?")
-        if (not requires_TP) and "pm" in self.array_config:
-            ask_question_exit_if_answer_no(
-                   "WARNING: this 7M SB does not require TP antennas, but it looks like "
-                   +f"your requested configuration '{self.array_config}' might include TP. Proceed?")
-
-    def check_TP_config(self):
-        if self.array_config not in ("default", "TP"):
-            ask_question_exit_if_answer_no(
-                 f"Do you really wish to simulate this TP SB with array configuration '{self.array_config}?'")
-
-    def check_12M_config(self,nominal_configs):
-        if (self.array_config.capitalize() not in nominal_configs
-            and self.array_config != "default"):
-            ask_question_exit_if_answer_no(
-                f"Nominal configuration(s) of this SB: {nominal_configs}. Do "
-                f"you really wish to simulate with configuration '{self.array_config}'?")
+        self.log_folder = log_folder
+        self.log_files_prefix = f'log_{xml_path.name}'
 
     def run(self):
-        self.determine_HAs_to_simulate()
-        self.remove_existing_log_files()
-        self.run_simulations()
-        if self.writeQueryLog:
-            self.summarize_available_calibrators()
-        self.print_results()
+        command = self.build_command()
+        self.print_pseudo_command(command=command)
+        with WorkFolder() as work_folder:
+            process = subprocess.run(command,text=True,capture_output=True,cwd=work_folder)
+            if process.returncode != 0:
+                pipes = {'stdout':process.stdout,'stderr':process.stderr}
+                result = self.identify_error(pipes=pipes)
+            else:
+                result = 'success'
+            if self.writeQueryLog:
+                available_cals = self.determine_available_calibrators(
+                                                            work_folder=work_folder)
+                self.concatenate_cal_queries(work_folder=work_folder)
+            else:
+                available_cals = None
+            self.move_log_files(work_folder=work_folder)
+        return result,available_cals
 
-    def determine_HAs_to_simulate(self):
-        rep_coord = self.xml_data.get_representative_coordinates()
-        #DSA will consider the following HA limits:
-        if rep_coord.dec.deg >= -5:
-            DSA_min_HA = -3
-            DSA_max_HA = 2
-        else:
-            DSA_min_HA = -4
-            DSA_max_HA = 3
-        if self.min_HA is None:
-            print('no min HA provided, thus adopting the min HA considered by '
-                  +f'DSA: {DSA_min_HA}h')
-            min_HA = DSA_min_HA
-        else:
-            print(f'using user-provided min HA of {self.min_HA}h')
-            min_HA = self.min_HA
-        if self.max_HA is None:
-            print('no max HA provided, thus adopting the max HA considered by'
-                  f' DSA: {DSA_max_HA}h')
-            max_HA = DSA_max_HA
-        else:
-            print(f'using user-provided max HA of {self.max_HA}h')
-            max_HA = self.max_HA
-        print(f'HA step: {self.HA_step}h')
-        self.HAs = [min_HA,]
-        HA_counter = 1
-        while True:
-            new_HA = min_HA + HA_counter*self.HA_step
-            if new_HA > max_HA:
-                break
-            self.HAs.append(new_HA)
-            HA_counter += 1
+    def build_command(self):
+        epoch = f'TRANSIT{self.HA:+}h'
+        if self.obs_date is not None:
+            epoch += f',{self.obs_date}'
+        command = ["simulateSB.py", str(self.xml_path.absolute()), epoch]
+        if self.array_config != "default":
+            command.append("-C")
+            if self.array_config.endswith(".cfg"):
+                #array config file is used
+                command.append( str(Path(self.array_config).absolute()) )
+            else:
+                #standard configuration is used, such as "7M" or "c43-3"
+                command.append(self.array_config)
+        if self.writeQueryLog:
+            command.append('--writeQueryLog')
+        return command
+
+    @staticmethod
+    def print_pseudo_command(command):
+        #ChatGPT refactored code
+        pseudo = []
+        for arg in command:
+            p = Path(arg)
+            if p.exists():
+                pseudo.append(p.name)
+            else:
+                pseudo.append(arg)
+        print(f'executing command: {" ".join(pseudo)}')
 
     @staticmethod
     def identify_error(pipes):
@@ -263,96 +245,175 @@ class SBSimulation():
               +' of stdout instead')
         return pipes['stdout'][-1]
 
-    def get_log_files(self):
-        return glob.glob(f'{self.log_files_prefix}_*.txt')
-
-    def remove_existing_log_files(self):
-        old_log_files = self.get_log_files()
-        if len(old_log_files) > 0:
-            print('found existing log files (from previous run?):')
-            for lf in old_log_files:
-                print(lf)
-            remove_log_files = ask_yes_no_with_yes_as_default(
-                                                      'remove these log files?')
-            if remove_log_files:
-                for lf in old_log_files:
-                    print(f'deleting {lf}')
-                    os.remove(lf)
-            else:
-                sys.exit('aborting, please remove log files')
-
-    def get_cal_query_file_names(self):
-         return [f'{self.log_files_prefix}_{cal}_1.txt' for cal in
-                 self.calibrator_query_identifiers]
-
-    def determine_available_calibrators(self):
+    def determine_available_calibrators(self,work_folder):
         available_calibrators = {}
-        cal_query_filenames = self.get_cal_query_file_names()
-        for cal_type,filename in zip(self.calibrator_query_identifiers,
-                                     cal_query_filenames):
-            if not os.path.isfile(filename):
-                continue
-            available_calibrators[cal_type] = []
-            with open(filename,"r") as file:
-                for line in file:
-                    splitted = line.replace(' ','').split('|')
-                    if len(splitted) > 2:
-                        calibrator,reason = splitted[1],splitted[-2]
-                        if calibrator == '':
-                            continue
-                        if calibrator[0] != '[':
-                            #line is not containing a calibrator
-                            continue
-                        if reason != '':
-                            #calibrator was rejected
-                            continue
-                        calibrator = calibrator.split(']')[0]
-                        calibrator = calibrator.replace('[','')
-                        available_calibrators[cal_type].append(calibrator)
+        cal_query_filepaths = self.get_cal_query_filepaths(work_folder=work_folder)
+        for cal_type,filepath in cal_query_filepaths.items():
+            if filepath.is_file():
+                available_calibrators[cal_type] = self.read_available_calibrators(filepath)
         return available_calibrators
 
-    def concatenate_cal_queries(self):
-        output_filename = f'{self.log_files_prefix}_calibrator_queries.txt'
-        cal_query_filenames = self.get_cal_query_file_names()
-        with open(output_filename,'w') as outfile:
-            for fname in cal_query_filenames:
-                if os.path.isfile(fname):
-                    with open(fname,'r') as infile:
+    def concatenate_cal_queries(self,work_folder):
+        output_filepath = work_folder / f'{self.log_files_prefix}_calibrator_queries.txt'
+        cal_query_filepaths = self.get_cal_query_filepaths(work_folder=work_folder)
+        with open(output_filepath,'w') as outfile:
+            for filepath in cal_query_filepaths.values():
+                if filepath.is_file():
+                    with open(filepath,'r') as infile:
                         outfile.write(infile.read())
                         outfile.write('\n\n######################################\n\n')
-                    os.remove(fname)
+                    filepath.unlink()
 
-    def move_log_files(self,HA):
-        log_files = self.get_log_files()
-        for log_f in log_files:
-            shutil.move(src=log_f,dst=os.path.join(self.log_folder,f'HA{HA}h_{log_f}'))
+    def move_log_files(self,work_folder):
+        log_file_paths = self.get_log_file_paths(work_folder)
+        for path in log_file_paths:
+            shutil.move(src=path, dst=self.log_folder / f'HA{self.HA}h_{path.name}')
+
+    def get_cal_query_filepaths(self,work_folder):
+         return {cal:work_folder / f'{self.log_files_prefix}_{cal}_1.txt' for cal in
+                 calibrator_query_identifiers}
+
+    @staticmethod
+    def read_available_calibrators(filepath):
+        available_calibrators = []
+        with open(filepath,"r") as file:
+            for line in file:
+                splitted = line.replace(' ','').split('|')
+                if len(splitted) > 2:
+                    calibrator,reason = splitted[1],splitted[-2]
+                    if calibrator == '':
+                        continue
+                    if calibrator[0] != '[':
+                        #line is not containing a calibrator
+                        continue
+                    if reason != '':
+                        #calibrator was rejected
+                        continue
+                    calibrator = calibrator.split(']')[0]
+                    calibrator = calibrator.replace('[','')
+                    available_calibrators.append(calibrator)
+        return available_calibrators
+
+    def get_log_file_paths(self,folderpath):
+        paths = folderpath.glob(f'{self.log_files_prefix}_*.txt') #iterator
+        return list(paths)
+
+
+class SBSimulation:
+
+    def __init__(self,xml_path,log_folder,min_HA,max_HA,HA_step,obs_date,writeQueryLog,
+                 array_config,check_array_config=True):
+        self.xml_path = xml_path
+        self.xml = OT_XML_File(filepath=xml_path)
+        self.log_folder = log_folder
+        self.min_HA = min_HA
+        self.max_HA = max_HA
+        self.HA_step = HA_step
+        self.obs_date = obs_date
+        self.writeQueryLog = writeQueryLog
+        self.array_config = array_config
+        if check_array_config:
+            self.check_array_config()
+
+    def check_array_config(self):
+        nominal_configs = self.xml.get_nominal_configurations()
+        if "7M" in nominal_configs:
+            self.check_7M_config()
+            return
+        if "TP" in nominal_configs:
+            self.check_TP_config()
+            return
+        self.check_12M_config(nominal_configs=nominal_configs)
+
+    def check_7M_config(self):
+        requires_TP = self.xml.read_RequiresTPAntennas()
+        if requires_TP and self.array_config in ("default","7M"):
+            ask_question_exit_if_answer_no(
+                           "WARNING: this 7M SB requires TP antennas, but requested "
+                           +f"configuration '{self.array_config}' does not include TP antennas. Proceed?")
+        if (not requires_TP) and "pm" in self.array_config:
+            ask_question_exit_if_answer_no(
+                   "WARNING: this 7M SB does not require TP antennas, but it looks like "
+                   +f"your requested configuration '{self.array_config}' might include TP. Proceed?")
+
+    def check_TP_config(self):
+        if self.array_config not in ("default", "TP"):
+            ask_question_exit_if_answer_no(
+                 f"Do you really wish to simulate this TP SB with array configuration '{self.array_config}?'")
+
+    def check_12M_config(self,nominal_configs):
+        if (self.array_config.capitalize() not in nominal_configs
+            and self.array_config != "default"):
+            ask_question_exit_if_answer_no(
+                f"Nominal configuration(s) of this SB: {nominal_configs}. Do "
+                f"you really wish to simulate with configuration '{self.array_config}'?")
+
+    def run(self):
+        self.determine_HAs_to_simulate()
+        #self.remove_existing_log_files()
+        self.run_simulations()
+        if self.writeQueryLog:
+            self.summarize_available_calibrators()
+        self.print_results()
+
+    @staticmethod
+    def DSA_HA_limits(dec):
+        if dec.deg >= -5:
+            return -3, 2
+        else:
+            return -4, 3
+
+    def determine_HAs_to_simulate(self):
+        rep_coord = self.xml.get_representative_coordinates()
+        DSA_min_HA, DSA_max_HA = self.DSA_HA_limits(dec=rep_coord.dec)
+        if self.min_HA is None:
+            print('no min HA provided, thus adopting the min HA considered by '
+                  +f'DSA: {DSA_min_HA}h')
+            min_HA = DSA_min_HA
+        else:
+            print(f'using user-provided min HA of {self.min_HA}h')
+            min_HA = self.min_HA
+        if self.max_HA is None:
+            print('no max HA provided, thus adopting the max HA considered by'
+                  f' DSA: {DSA_max_HA}h')
+            max_HA = DSA_max_HA
+        else:
+            print(f'using user-provided max HA of {self.max_HA}h')
+            max_HA = self.max_HA
+        print(f'HA step: {self.HA_step}h')
+        self.HAs = [min_HA,]
+        counter = 1
+        while True:
+            new_HA = min_HA + counter*self.HA_step
+            if new_HA > max_HA:
+                break
+            self.HAs.append(new_HA)
+            counter += 1
+
+    def run_single_HA(self,HA):
+        #IMPORTANT since this method is used inside executor.map for parallellisation,
+        #it cannot do any modification to the class attributes. The reason, as explained
+        #by chatGPT:
+        #When executor.map(self.run_single_HA, self.HAs) is called:
+        # - self is pickled and sent to a worker process.
+        # - Each worker receives its own copy of self.
+        # - run_single_HA() may modify that copy, but the copy is discarded when the function returns.
+        # - so the parent object's attributes are never updated, even if run_singel_HA modifies it
+        #Here we can clearly see that run_single_HA does not modify this class' attributes,
+        #so everything is fine
+        sim = SingleHASimulation(HA=HA, xml_path=self.xml_path,
+                                 array_config=self.array_config,
+                                 obs_date=self.obs_date,
+                                 writeQueryLog=self.writeQueryLog,
+                                 log_folder=self.log_folder)
+        return sim.run()
 
     def run_simulations(self):
-        self.results = []
-        if self.writeQueryLog:
-            self.available_calibrators = []
-        for HA in self.HAs:
-            epoch = f'TRANSIT{HA:+}h'
-            if self.obs_date is not None:
-                epoch += f',{self.obs_date}'
-            command = ["simulateSB.py", self.xml_file,epoch]
-            if self.array_config != "default":
-                command += ["-C", self.array_config]
+        with ProcessPoolExecutor() as executor:
+            output = list(executor.map(self.run_single_HA, self.HAs))
+            self.results = [out[0] for out in output]
             if self.writeQueryLog:
-                command.append('--writeQueryLog')
-            print(f'executing command: {" ".join(command)}')
-            process = subprocess.run(command,text=True,capture_output=True)
-            if process.returncode != 0:
-                pipes = {'stdout':process.stdout,'stderr':process.stderr}
-                errormessage = self.identify_error(pipes=pipes)
-                self.results.append(errormessage)
-            else:
-                self.results.append('success')
-            if self.writeQueryLog:
-                self.available_calibrators.append(
-                                        self.determine_available_calibrators())
-                self.concatenate_cal_queries()
-            self.move_log_files(HA=HA)        
+                self.available_calibrators = [out[1] for out in output]
 
     def queried_calibrator_types(self):
         calibrator_types = []
@@ -361,12 +422,12 @@ class SBSimulation():
         return list(set(calibrator_types))
 
     def summarize_available_calibrators(self):
-        out_filename = os.path.join(self.log_folder,'available_calibrators.csv')
+        out_filename = self.log_folder / 'available_calibrators.csv'
         calibrator_types = self.queried_calibrator_types()
         #order the calibrator types according to the query order:
         calibrator_types = sorted(
                              calibrator_types,
-                             key=lambda x:self.calibrator_query_identifiers.index(x))
+                             key=lambda x:calibrator_query_identifiers.index(x))
         with open(out_filename,'w') as file:
             file.write('HA,')
             file.write(','.join(calibrator_types))
@@ -391,15 +452,13 @@ class SBSimulation():
         for HA,result in zip(self.HAs,self.results):
             print(f'{HA}h: {result}')
 
-    def append_results_to_file(self,filename):
-        with open(filename,'a') as file:
+    def append_results_to_file(self,filepath):
+        with open(filepath,'a') as file:
             for HA,result in zip(self.HAs,self.results):
                 file.write(f'{HA}h: {result}\n')
 
 
-class Simulation():
-
-    sim_result_filename = 'SimulatedCalResultsData.dat'
+class Simulator:
 
     def __init__(self, args):
         self.args = args
@@ -415,33 +474,34 @@ class Simulation():
 
     def handle_file_input(self, filename, array_config):
         self.array_config = array_config
-        suffix = Path(filename).suffix
+        filepath = Path(filename)
+        suffix = filepath.suffix
         if suffix == ".xml":
             self.input_mode = "xml"
-            self.xml_files = [filename]
+            self.xml_filepaths = [filepath]
         elif suffix == ".aot":
             self.confirm_aot_usage()
             self.input_mode = "aot"
-            self.xml_files = self.extract_xml_files_from_aot(filename)
+            self.xml_filepaths = self.extract_xml_files_from_aot(filepath)
         else:
             raise ValueError("invalid arguments")
 
     def handle_code_sb_input(self, project_code, sb_name, array_config):
         self.array_config = array_config
         self.input_mode = "sb"
-        xml_filename = self.get_xml_filename(SB_name=sb_name)
-        xml_file = OT_XML_File.download_xml_file(
+        filepath = Path(xml_filename(SB=sb_name))
+        xml_path = OT_XML_File.download_xml_file(
             project_code=project_code,
             SB=sb_name,
-            filename=xml_filename,
+            filepath=filepath,
         )
-        print(f"downloaded {xml_file}")
-        self.xml_files = [xml_file]
+        print(f"downloaded {xml_path}")
+        self.xml_filepaths = [xml_path]
 
     def confirm_aot_usage(self):
         ask_question_exit_if_answer_no(
             "ATTENTION: will use antenna configuration "
-            f'"{self.array_config}" for all SBs. '
+            f'"{self.array_config}" for ALL SBs of the project. '
             "Do you want to proceed?"
         )
 
@@ -463,7 +523,6 @@ class Simulation():
         return self.input_mode == "xml"
 
     def run(self):
-        #self.prepare_xml_files()
         self.prepare_log_folders()
         if self.aot_was_provided():
             self.prepare_summary_file()
@@ -471,33 +530,31 @@ class Simulation():
         self.clean_up()
 
     @staticmethod
-    def get_xml_filename(SB_name):
-        return f'{SB_name}.xml'
-
-    @staticmethod
     def extract_xml_files_from_aot(aot_file):
         print(f'going to extract xml files from {aot_file}')
         xml_pattern = 'Sch*.xml'
-        old_xml_files = glob.glob(xml_pattern)
-        if len(old_xml_files) > 0:
+        old_xml_file_paths = list(Path.cwd().glob(xml_pattern))
+        if len(old_xml_file_paths) > 0:
             raise RuntimeError('cannot extract xmls from .aot because some xmls'
                                +' already exist, please delete')
-        os.system(f'unzip {aot_file} {xml_pattern}')
-        extracted_xml_files = glob.glob(xml_pattern)
-        output_xml_filenames = []
-        for xml_file in extracted_xml_files:
-            xml = OT_XML_File(xml_file)
+        subprocess.run(["unzip", str(aot_file), xml_pattern])
+        extracted_xml_filepaths = Path.cwd().glob(xml_pattern)
+        output_xml_filepaths = []
+        for xml_filepath in extracted_xml_filepaths:
+            xml = OT_XML_File(xml_filepath)
             SB_name = xml.get_SB_name()
-            new_xml_filename = Simulation.get_xml_filename(SB_name=SB_name)
-            os.rename(xml_file,new_xml_filename)
-            output_xml_filenames.append(new_xml_filename)
-        print(f'extracted following xml files: {output_xml_filenames}')
-        return output_xml_filenames
+            new_xml_filename = xml_filename(SB=SB_name)
+            new_path = xml_filepath.with_name(new_xml_filename)
+            xml_filepath.rename(new_path)
+            output_xml_filepaths.append(new_path)
+        print(f'extracted following xml files: {output_xml_filepaths}')
+        return output_xml_filepaths
 
     def prepare_log_folders(self):
-        self.log_folders = [f'log_files_{xml_file[:-4]}' for xml_file in self.xml_files]
+        self.log_folders = [Path(f'log_files_{xml_filepath.stem}') for xml_filepath
+                            in self.xml_filepaths]
         for log_folder in self.log_folders:
-            if os.path.isdir(log_folder):
+            if log_folder.is_dir():
                 remove_existing_log_folder = ask_yes_no_with_yes_as_default(
                             f'remove existing log folder {log_folder}?')
                 if remove_existing_log_folder:
@@ -505,52 +562,51 @@ class Simulation():
                     shutil.rmtree(log_folder)
                 else:
                     sys.exit('aborting, please remove or rename folder containing log files')
-            os.mkdir(log_folder)
+            log_folder.mkdir()
 
     def prepare_summary_file(self):
-        self.summary_filename = f'{self.args.positional_args[0]}_simulation_summary.txt'
-        if os.path.exists(self.summary_filename):
-            print(f'deleting {self.summary_filename}')
-            os.remove(self.summary_filename)
+        self.summary_filepath = Path(f'{self.args.positional_args[0]}_simulation_summary.txt')
+        if self.summary_filepath.is_file():
+            print(f'deleting {self.summary_filepath}')
+            self.summary_filepath.unlink()
 
     def run_simulations(self):
-        for xml_file,log_folder in zip(self.xml_files,self.log_folders):
-            print(f'going to run simulations of {xml_file}')
+        for xml_path,log_folder in zip(self.xml_filepaths,self.log_folders):
+            print(f'going to run simulations of {xml_path.name}')
             if self.aot_was_provided():
-                with open(self.summary_filename,'a') as file:
-                    file.write(f'\n{xml_file}\n')
-            #If aot file was provided, I just ask about the array config at the start,
-            #and not for each SB again:
+                with open(self.summary_filepath,'a') as file:
+                    file.write(f'\n{xml_path.name}\n')
+            #If aot file was provided, I already checked the array config, so
+            #I do not need to do it again here
             check_array_config = not self.aot_was_provided()
-            sim = SBSimulation(
-                        xml_file=xml_file,log_folder=log_folder,min_HA=self.args.min_HA,
+            sb_sim = SBSimulation(
+                        xml_path=xml_path,log_folder=log_folder,min_HA=self.args.min_HA,
                         max_HA=self.args.max_HA,HA_step=self.args.HA_step,
                         obs_date=self.args.obs_date,writeQueryLog=self.args.writeQueryLog,
                         array_config=self.array_config,check_array_config=check_array_config)
-            sim.run()
+            sb_sim.run()
             if self.aot_was_provided():
-                sim.append_results_to_file(filename=self.summary_filename)
+                sb_sim.append_results_to_file(filepath=self.summary_filepath)
             print('\n------------------------------------------\n')
 
     def clean_up(self):
         if not self.xml_was_provided():
-            for xml_file in self.xml_files:
-                os.remove(xml_file)
-                print(f'deleted {xml_file}')
-        os.remove(self.sim_result_filename)
-        print(f'deleted {self.sim_result_filename}')    
+            for xml_path in self.xml_filepaths:
+                xml_path.unlink()
+                print(f'deleted {xml_path}')  
         keep_log_files = ask_yes_no_with_yes_as_default('keep log files?')
         if not keep_log_files:
             for log_folder in self.log_folders:
                 shutil.rmtree(log_folder)
                 print(f'deleted {log_folder}')
             if self.aot_was_provided():
-                os.remove(self.summary_filename)
+                self.summary_filepath.unlink()
         else:
+            log_folders_str = [str(lf) for lf in self.log_folders]
             print('log files can be found in following folder(s)): '
-                  +f'{", ".join(self.log_folders)}')
+                  +f'{", ".join(log_folders_str)}')
             if self.aot_was_provided():
-                print(f'summary file: {self.summary_filename}')
+                print(f'summary file: {self.summary_filepath}')
 
 
 if __name__ == '__main__':

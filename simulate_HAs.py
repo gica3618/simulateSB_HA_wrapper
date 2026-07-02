@@ -35,5 +35,5 @@ parser.add_argument('--obs_date',type=str,default=None)
 parser.add_argument('--writeQueryLog',action='store_true')
 args = parser.parse_args()
 
-sim = simulator.Simulation(args=args)
+sim = simulator.Simulator(args=args)
 sim.run()
