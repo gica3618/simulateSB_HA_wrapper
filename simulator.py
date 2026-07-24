@@ -16,7 +16,7 @@ from astropy.coordinates import SkyCoord
 from astropy import units as u
 from pathlib import Path
 import tempfile
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 
 
 #the following list is in the order of how queries are conducted by OSS!
@@ -409,7 +409,10 @@ class SBSimulation:
         return sim.run()
 
     def run_simulations(self):
-        with ProcessPoolExecutor() as executor:
+        #suggestion by AI: use ThreadPoolExecutor instead of ProcessPoolExecutor
+        #since the heavy work is done by simulateSB.py, and this script only calls
+        #simulateSB.py
+        with ThreadPoolExecutor() as executor:
             output = list(executor.map(self.run_single_HA, self.HAs))
             self.results = [out[0] for out in output]
             if self.writeQueryLog:
