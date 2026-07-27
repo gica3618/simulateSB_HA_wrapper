@@ -392,13 +392,8 @@ class SBSimulation:
 
     def run_single_HA(self,HA):
         #IMPORTANT since this method is used inside executor.map for parallellisation,
-        #it cannot do any modification to the class attributes. The reason, as explained
-        #by chatGPT:
-        #When executor.map(self.run_single_HA, self.HAs) is called:
-        # - self is pickled and sent to a worker process.
-        # - Each worker receives its own copy of self.
-        # - run_single_HA() may modify that copy, but the copy is discarded when the function returns.
-        # - so the parent object's attributes are never updated, even if run_singel_HA modifies it
+        #it should only read, but not write to self. The reason is that if several
+        #threads write to self at the same time, bad things might be happening...
         #Here we can clearly see that run_single_HA does not modify this class' attributes,
         #so everything is fine
         sim = SingleHASimulation(HA=HA, xml_path=self.xml_path,
@@ -411,7 +406,8 @@ class SBSimulation:
     def run_simulations(self):
         #suggestion by AI: use ThreadPoolExecutor instead of ProcessPoolExecutor
         #since the heavy work is done by simulateSB.py, and this script only calls
-        #simulateSB.py
+        #simulateSB.py. Indeed, since I use subprocess.run, a separate process is
+        #already created, so I only need separate threads here
         with ThreadPoolExecutor() as executor:
             output = list(executor.map(self.run_single_HA, self.HAs))
             self.results = [out[0] for out in output]
