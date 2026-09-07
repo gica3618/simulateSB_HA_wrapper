@@ -326,26 +326,38 @@ class SBSimulation:
         self.check_12M_config(nominal_configs=nominal_configs)
 
     def check_7M_config(self):
-        requires_TP = self.xml.read_RequiresTPAntennas()
-        if requires_TP and self.array_config in ("default","7M"):
+        config = self.array_config
+        requires_tp = self.xml.read_RequiresTPAntennas()
+        requests_std_7m = config in ("default", "7M")
+        requests_7m_with_tp = "aca" in config and "pm" in config
+
+        if not requests_std_7m and not requests_7m_with_tp:
             ask_question_exit_if_answer_no(
-                           "WARNING: this 7M SB requires TP antennas, but requested "
-                           +f"configuration '{self.array_config}' does not include TP antennas. Proceed?")
-        if (not requires_TP) and "pm" in self.array_config:
+                f"WARNING: Do you really wish to simulate this 7m SB with "
+                f"array configuration '{config}'?")
+    
+        if requires_tp and requests_std_7m:
             ask_question_exit_if_answer_no(
-                   "WARNING: this 7M SB does not require TP antennas, but it looks like "
-                   +f"your requested configuration '{self.array_config}' might include TP. Proceed?")
+                "WARNING: this 7M SB requires TP antennas, but requested "
+                f"configuration '{config}' does not include TP antennas. Proceed?"
+            )
+    
+        if not requires_tp and requests_7m_with_tp:
+            ask_question_exit_if_answer_no(
+                "WARNING: this 7M SB does not require TP antennas, but it looks "
+                f"like your requested configuration '{config}' might include TP. Proceed?"
+            )
 
     def check_TP_config(self):
         if self.array_config not in ("default", "TP"):
             ask_question_exit_if_answer_no(
-                 f"Do you really wish to simulate this TP SB with array configuration '{self.array_config}?'")
+                 f"WARNING: Do you really wish to simulate this TP SB with array configuration '{self.array_config}?'")
 
     def check_12M_config(self,nominal_configs):
         if (self.array_config.capitalize() not in nominal_configs
             and self.array_config != "default"):
             ask_question_exit_if_answer_no(
-                f"Nominal configuration(s) of this SB: {nominal_configs}. Do "
+                f"WARNING: Nominal configuration(s) of this SB: {nominal_configs}. Do "
                 f"you really wish to simulate with configuration '{self.array_config}'?")
 
     def run(self):
