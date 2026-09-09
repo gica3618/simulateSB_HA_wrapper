@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 calibrator_query_identifiers = ['diffgain','bandpass','phase','check']
 
 
-def ask_yes_no_with_yes_as_default(question):
+def ask(question):
     print(question)
     answer = None
     while answer not in ('','y','n'):
@@ -35,10 +35,10 @@ def ask_yes_no_with_yes_as_default(question):
             raise RuntimeError("unexpected answer")
         return True
 
-def ask_question_exit_if_answer_no(question):
-    proceed = ask_yes_no_with_yes_as_default(question)
+def ask_and_raise_error(question):
+    proceed = ask(question)
     if not proceed:
-        sys.exit("exiting")
+        raise RuntimeError("aborted")
 
 def xml_filename(SB):
     return f'{SB}.xml'
@@ -332,31 +332,31 @@ class SBSimulation:
         requests_7m_with_tp = "aca" in config and "pm" in config
 
         if not requests_std_7m and not requests_7m_with_tp:
-            ask_question_exit_if_answer_no(
+            ask_and_raise_error(
                 f"WARNING: Do you really wish to simulate this 7m SB with "
                 f"array configuration '{config}'?")
     
         if requires_tp and requests_std_7m:
-            ask_question_exit_if_answer_no(
+            ask_and_raise_error(
                 "WARNING: this 7M SB requires TP antennas, but requested "
                 f"configuration '{config}' does not include TP antennas. Proceed?"
             )
     
         if not requires_tp and requests_7m_with_tp:
-            ask_question_exit_if_answer_no(
+            ask_and_raise_error(
                 "WARNING: this 7M SB does not require TP antennas, but it looks "
                 f"like your requested configuration '{config}' might include TP. Proceed?"
             )
 
     def check_TP_config(self):
         if self.array_config not in ("default", "TP"):
-            ask_question_exit_if_answer_no(
+            ask_and_raise_error(
                  f"WARNING: Do you really wish to simulate this TP SB with array configuration '{self.array_config}?'")
 
     def check_12M_config(self,nominal_configs):
         if (self.array_config.capitalize() not in nominal_configs
             and self.array_config != "default"):
-            ask_question_exit_if_answer_no(
+            ask_and_raise_error(
                 f"WARNING: Nominal configuration(s) of this SB: {nominal_configs}. Do "
                 f"you really wish to simulate with configuration '{self.array_config}'?")
 
@@ -472,6 +472,12 @@ class SBSimulation:
 class Simulator:
 
     def __init__(self, args):
+        #first, create objects to track all files and folders that are created. this
+        #makes cleaning up easiser
+        self.xml_filepaths = []
+        self.created_log_folders = []
+        self.created_summary_file = False
+        #next handle input args:
         self.args = args
         positional = args.positional_args
         if len(positional) == 2:
@@ -489,11 +495,11 @@ class Simulator:
         suffix = filepath.suffix
         if suffix == ".xml":
             self.input_mode = "xml"
-            self.xml_filepaths = [filepath]
+            self.xml_filepaths.append(filepath)
         elif suffix == ".aot":
             self.confirm_aot_usage()
             self.input_mode = "aot"
-            self.xml_filepaths = self.extract_xml_files_from_aot(filepath)
+            self.extract_xml_files_from_aot(filepath)
         else:
             raise ValueError("invalid arguments")
 
@@ -507,10 +513,10 @@ class Simulator:
             filepath=filepath,
         )
         print(f"downloaded {xml_path}")
-        self.xml_filepaths = [xml_path]
+        self.xml_filepaths.append(xml_path)
 
     def confirm_aot_usage(self):
-        ask_question_exit_if_answer_no(
+        ask_and_raise_error(
             "ATTENTION: will use antenna configuration "
             f'"{self.array_config}" for ALL SBs of the project. '
             "Do you want to proceed?"
@@ -530,18 +536,10 @@ class Simulator:
     def aot_was_provided(self):
         return self.input_mode == "aot"
 
-    def xml_was_provided(self):
+    def xml_was_provided_by_user(self):
         return self.input_mode == "xml"
 
-    def run(self):
-        self.prepare_log_folders()
-        if self.aot_was_provided():
-            self.prepare_summary_file()
-        self.run_simulations()
-        self.clean_up()
-
-    @staticmethod
-    def extract_xml_files_from_aot(aot_file):
+    def extract_xml_files_from_aot(self,aot_file):
         print(f'going to extract xml files from {aot_file}')
         xml_pattern = 'Sch*.xml'
         old_xml_file_paths = list(Path.cwd().glob(xml_pattern))
@@ -550,39 +548,38 @@ class Simulator:
                                +' already exist, please delete')
         subprocess.run(["unzip", str(aot_file), xml_pattern])
         extracted_xml_filepaths = Path.cwd().glob(xml_pattern)
-        output_xml_filepaths = []
         for xml_filepath in extracted_xml_filepaths:
             xml = OT_XML_File(xml_filepath)
             SB_name = xml.get_SB_name()
             new_xml_filename = xml_filename(SB=SB_name)
             new_path = xml_filepath.with_name(new_xml_filename)
             xml_filepath.rename(new_path)
-            output_xml_filepaths.append(new_path)
-        print(f'extracted following xml files: {output_xml_filepaths}')
-        return output_xml_filepaths
+            self.xml_filepaths.append(new_path)
+        print(f'extracted following xml files: {self.xml_filepaths}')
 
     def prepare_log_folders(self):
-        self.log_folders = [Path(f'log_files_{xml_filepath.stem}') for xml_filepath
-                            in self.xml_filepaths]
-        for log_folder in self.log_folders:
+        for xml_filepath in self.xml_filepaths:
+            log_folder = Path(f'log_files_{xml_filepath.stem}')
             if log_folder.is_dir():
-                remove_existing_log_folder = ask_yes_no_with_yes_as_default(
+                remove_existing_log_folder = ask(
                             f'remove existing log folder {log_folder}?')
                 if remove_existing_log_folder:
                     print(f'deleting folder {log_folder}')
                     shutil.rmtree(log_folder)
                 else:
-                    sys.exit('aborting, please remove or rename folder containing log files')
+                    raise RuntimeError('aborting, please remove or rename existing log folder')
             log_folder.mkdir()
+            self.created_log_folders.append(log_folder)
 
     def prepare_summary_file(self):
         self.summary_filepath = Path(f'{self.args.positional_args[0]}_simulation_summary.txt')
-        if self.summary_filepath.is_file():
-            print(f'deleting {self.summary_filepath}')
-            self.summary_filepath.unlink()
+        if self.summary_filepath.exists():
+            raise RuntimeError(f'{self.summary_filepath} already exits, please delete or rename')
+        self.summary_filepath.touch()
+        self.created_summary_file = True
 
     def run_simulations(self):
-        for xml_path,log_folder in zip(self.xml_filepaths,self.log_folders):
+        for xml_path,log_folder in zip(self.xml_filepaths,self.created_log_folders):
             print(f'going to run simulations of {xml_path.name}')
             if self.aot_was_provided():
                 with open(self.summary_filepath,'a') as file:
@@ -600,24 +597,49 @@ class Simulator:
                 sb_sim.append_results_to_file(filepath=self.summary_filepath)
             print('\n------------------------------------------\n')
 
-    def clean_up(self):
-        if not self.xml_was_provided():
+    def remove_created_xml_files(self):
+        #want to remove xmls that are either downloaded or extracted from aot file
+        if not self.xml_was_provided_by_user():
             for xml_path in self.xml_filepaths:
                 xml_path.unlink()
-                print(f'deleted {xml_path}')  
-        keep_log_files = ask_yes_no_with_yes_as_default('keep log files?')
+                print(f'deleted {xml_path}')
+
+    def remove_log_folders(self):
+        for log_folder in self.created_log_folders:
+            shutil.rmtree(log_folder)
+            print(f'deleted {log_folder}')
+
+    def remove_aot_summary_file(self):
+        if self.created_summary_file:
+            self.summary_filepath.unlink()
+            print(f"deleted {self.summary_filepath}")
+
+    def clean_up(self,keep_log_files):
+        self.remove_created_xml_files()
         if not keep_log_files:
-            for log_folder in self.log_folders:
-                shutil.rmtree(log_folder)
-                print(f'deleted {log_folder}')
+            self.remove_log_folders()
+            self.remove_aot_summary_file()
+
+    def print_log_file_info(self):
+        log_folders_str = [str(lf) for lf in self.created_log_folders]
+        print('log files can be found in following folder(s)): '
+              +f'{", ".join(log_folders_str)}')
+        if self.aot_was_provided():
+            print(f'summary file: {self.summary_filepath}')
+
+    def run(self):
+        try:
+            self.prepare_log_folders()
             if self.aot_was_provided():
-                self.summary_filepath.unlink()
-        else:
-            log_folders_str = [str(lf) for lf in self.log_folders]
-            print('log files can be found in following folder(s)): '
-                  +f'{", ".join(log_folders_str)}')
-            if self.aot_was_provided():
-                print(f'summary file: {self.summary_filepath}')
+                self.prepare_summary_file()
+            self.run_simulations()
+            keep_log_files = ask("keep log files?")
+            self.clean_up(keep_log_files=keep_log_files)
+            if keep_log_files:
+                self.print_log_file_info()
+        except Exception:
+            self.clean_up(keep_log_files=False)
+            raise
 
 
 if __name__ == '__main__':

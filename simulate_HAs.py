@@ -24,8 +24,6 @@ Created on Tue Jan 16 10:05:21 2024
 import argparse
 import simulator
 
-print('remember to do "source ~ahirota/setupEnvCXY.sh" before running this script')
-
 parser = argparse.ArgumentParser()
 parser.add_argument("positional_args", nargs="+")
 parser.add_argument('--min_HA',type=float,default=None)
