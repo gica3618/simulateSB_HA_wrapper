@@ -24,35 +24,30 @@ Created on Tue Jan 16 10:05:21 2024
 import argparse
 import simulator
 
+
+epilog = ("Examples:\n"
+         +"1) Simulate all HAs as considered by the DSA, with steps of 1h:\n"
+         +"simulate_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 c43-3\n\n"
+         +"2) Specify HA range (from 1h to 2h in steps of 0.2h):\n"
+         +"simulate_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 c43-1 --min_HA 1 "
+         +"--max_HA 2 --HA_step 0.2\n\n"
+         +"3) Specify a particular date of observation and save calibrator "
+         +"query information:\n"
+        +"simulate_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 c43-5"
+        +" --obs_date=2024-11-08 --writeQueryLog\n\n"
+        +"4) Simulate a 7M SB using an xml file, and with a configuration file"
+        +" that contains PM antennas, with steps of 0.25H:\n"
+        +"simulate_HAs.py HD_16329_a_09_7M.xml aca.cm10.pm3.cfg --HA_step=0.25\n\n"
+        +"5) Simulate all SBs of a project and save calibrator query information. Let "
+        +"simulateSB.py decide the array configuration for each SB:\nsimulate_HAs.py "
+        +"2023.1.00578.S.aot default --writeQueryLog")
+
 parser = argparse.ArgumentParser(description="There are three ways of using this "
                                  +"wrapper:\n1) provide the project code and SB name"
                                  +"\n2) provide xml file\n3) provide"
                                  +" aot file. In this case, all SBs "
                                  +"contained in the aot file will be simulated.",
-                                 epilog="Examples:\n"
-                                         +"1) Simulate all HAs as considered by the DSA, "
-                                         +"with steps of 1h:\nsimulate_HAs.py "
-                                         +"2023.1.00578.S HD_16329_a_09_TM1 c43-3\n\n"
-                                         +"2) Specify antenna configuration and HA range "
-                                         +"(from 1h to 2h in steps of 0.2h):\n"
-                                         +"simulate_HAs.py "
-                                         +"2023.1.00578.S HD_16329_a_09_TM1 c43-1 "
-                                         +"--min_HA 1 --max_HA 2 --HA_step 0.2\n\n"
-                                         +"3) Specify a particular date of observation"
-                                         +" and save calibrator query information:\n"
-                                         +"simulate_HAs.py "
-                                         +"2023.1.00578.S HD_16329_a_09_TM1 c43-5"
-                                         +" --obs_date=2024-11-08 --writeQueryLog\n\n"
-                                         +"4) Simulate a 7M SB using an xml file, and with"
-                                         +" a configuration file"
-                                         +" that contains PM antennas, with steps of 0.25H:\n"
-                                         +"simulate_HAs.py HD_16329_a_09_7M.xml "
-                                         +"aca.cm10.pm3.cfg --HA_step=0.25\n\n"
-                                         +"4) Simulate all SBs of a project and save "
-                                         +"calibrator query information. Let "
-                                         +"simulateSB.py decide the array configuration"
-                                         +" for each SB:\nsimulate_HAs.py "
-                                         +"2023.1.00578.S.aot default --writeQueryLog",
+                                 epilog=epilog,
                                  formatter_class=argparse.RawTextHelpFormatter)
 parser.add_argument("positional_args", nargs="+",
                     help="There are three options:\n1) <project code> <SB name> "
