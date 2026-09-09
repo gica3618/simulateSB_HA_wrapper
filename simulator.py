@@ -531,7 +531,8 @@ class Simulator:
 
     def check_array_config(self):
         if self.array_config == "default":
-            print("user requests that simulateSB.py decides the array configuration to simulate")
+            print("user requests that simulateSB.py decides the array "
+                  +"configuration to simulate")
 
     def aot_was_provided(self):
         return self.input_mode == "aot"
