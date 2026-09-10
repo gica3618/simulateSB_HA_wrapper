@@ -165,14 +165,22 @@ class OT_XML_File():
 
 class SingleHASimulation:
 
+    current_file_path = Path(__file__).resolve()
+    aca10_pm3_filepath = current_file_path.with_name("aca.cm10.pm3.cfg")
+
     def __init__(self,HA,xml_path,array_config,obs_date,writeQueryLog,log_folder):
         self.HA = HA
         self.xml_path = xml_path
         self.array_config = array_config
+        self.replace_7M_TP_config()
         self.obs_date = obs_date
         self.writeQueryLog = writeQueryLog
         self.log_folder = log_folder
         self.log_files_prefix = f'log_{xml_path.name}'
+
+    def replace_7M_TP_config(self):
+        if self.array_config == "7m_with_TP":
+            self.array_config = str(self.aca10_pm3_filepath)
 
     def run(self):
         command = self.build_command()
@@ -204,7 +212,7 @@ class SingleHASimulation:
                 #array config file is used
                 command.append( str(Path(self.array_config).absolute()) )
             else:
-                #standard configuration is used, such as "7M" or "c43-3"
+                #standard configuration is used, such as "7m" or "c43-3"
                 command.append(self.array_config)
         if self.writeQueryLog:
             command.append('--writeQueryLog')
@@ -328,30 +336,33 @@ class SBSimulation:
     def check_7M_config(self):
         config = self.array_config
         requires_tp = self.xml.read_RequiresTPAntennas()
-        requests_std_7m = config in ("default", "7M")
-        requests_7m_with_tp = "aca" in config and "pm" in config
+        requests_std_7M = config in ("default", "7m")
+        requests_7M_with_TP = config == "7m_with_TP"
 
-        if not requests_std_7m and not requests_7m_with_tp:
+        if not requests_std_7M and not requests_7M_with_TP:
             ask_and_raise_error(
                 f"WARNING: Do you really wish to simulate this 7m SB with "
                 f"array configuration '{config}'?")
     
-        if requires_tp and requests_std_7m:
+        if requires_tp and requests_std_7M:
             ask_and_raise_error(
-                "WARNING: this 7M SB requires TP antennas, but requested "
-                f"configuration '{config}' does not include TP antennas. Proceed?"
+                "WARNING: this 7m SB requires TP antennas. Recommended array "
+                "configuration is '7m_with_TP'. Do you reallly with to simulate"
+                f" with configuration '{config}'?"
             )
     
-        if not requires_tp and requests_7m_with_tp:
+        if not requires_tp and requests_7M_with_TP:
             ask_and_raise_error(
-                "WARNING: this 7M SB does not require TP antennas, but it looks "
-                f"like your requested configuration '{config}' might include TP. Proceed?"
+                "WARNING: this 7m SB does not require TP antennas. Recommended array "
+                "configuration is '7m'. Do you really wish to simulate with"
+                f" '{config}'?"
             )
 
     def check_TP_config(self):
         if self.array_config not in ("default", "TP"):
             ask_and_raise_error(
-                 f"WARNING: Do you really wish to simulate this TP SB with array configuration '{self.array_config}?'")
+                 "WARNING: Do you really wish to simulate this TP SB with"
+                 f" array configuration '{self.array_config}?'")
 
     def check_12M_config(self,nominal_configs):
         if (self.array_config.capitalize() not in nominal_configs

@@ -11,7 +11,13 @@
   <br>`simulate_HAs.py <aot filename> <array config> --min_HA <min HA> --max_HA <max HA> --HA_step <HA step> --obs_date=<observation date> --writeQueryLog`
   <br>Note that `<aot filename>` needs to end with .aot. Note also that `<array config>` will be used for all SBs.
 
-For the array configuration, the user can specify pre-defined configurations (e.g. 'TP', '7m', 'c43-1' to 'c43-10') or specify a configuration file (e.g. 'aca.cm10.pm3.cfg '). The user can also specify 'default'. In that case, simulateSB.py will decide which configuration it will simulate.
+For the array configuration, the following options are available:
+- c43-1,...,c43-10 (12m configurations)
+- '7m'
+- '7m_with_TP' (for 7m SBs that require TP antennas, typically high frequency)
+- 'TP'
+- 'default' (run simulateSB.py without specifying configuration)
+- custom .cfg file provided by the user\
 
 If the option `--writeQueryLog` is specified, calibrator queries and an overview of available calibrators are saved into text files.
 
@@ -23,7 +29,8 @@ default values:
 
 examples:
 - Simulate all HAs as considered by the DSA, with steps of 1h: `simulate_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 c43-3`
-- Specify antenna configuration and HA range (from 1h to 2h in steps of 0.2h): `simulate_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 c43-1 --min_HA 1 --max_HA 2 --HA_step 0.2`
+- Specify HA range (from 1h to 2h in steps of 0.2h): `simulate_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 c43-1 --min_HA 1 --max_HA 2 --HA_step 0.2`
+- Simulate high frequency 7m SB (xml) with additional TP antennas: `simulate_HAs.py 2023.1.00452.S SM_22409_a_09_7M 7m_with_TP`
 - Specify a particular date of observation and save calibrator query information: `simulate_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 c43-5 --obs_date=2024-11-08 --writeQueryLog`
-- Simulate an xml file, and specify the antenna configuration by a cfg file: `simulate_HAs.py HD_16329_a_09_7M aca.cm10.pm3.cfg`
-- Simulate all SBs of a project and save calibrator query information. Let simulateSB.py decide the array configuration for each SB: `simulate_HAs.py 2023.1.00578.S.aot default --writeQueryLog`
+- Simulate an xml file, and specify the antenna configuration by a cfg file: `simulate_HAs.py HD_16329_a_09_TM1 my_antenna_config.cfg`
+- Simulate all SBs of a project and save calibrator query information. Run simulateSB.py for each SB without specifying the configuration: `simulate_HAs.py 2023.1.00578.S.aot default --writeQueryLog`

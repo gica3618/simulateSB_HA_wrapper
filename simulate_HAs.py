@@ -35,17 +35,20 @@ epilog = ("Examples:\n"
          +"query information:\n"
         +"simulate_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 c43-5"
         +" --obs_date=2024-11-08 --writeQueryLog\n\n"
-        +"4) Simulate a 7M SB using an xml file, and with a configuration file"
-        +" that contains PM antennas, with steps of 0.25H:\n"
-        +"simulate_HAs.py HD_16329_a_09_7M.xml aca.cm10.pm3.cfg --HA_step=0.25\n\n"
+        +"4) Simulate a high frequency 7m SB with a configuration that includes TP antennas,"
+        +" with steps of 0.25H:\n"
+        +"simulate_HAs.py HD_16329_a_09_7M.xml 7m_with_TP --HA_step=0.25\n\n"
         +"5) Simulate all SBs of a project and save calibrator query information. Let "
-        +"simulateSB.py decide the array configuration for each SB:\nsimulate_HAs.py "
-        +"2023.1.00578.S.aot default --writeQueryLog")
+        +"simulateSB.py use its default the array configuration for each SB:\nsimulate_HAs.py "
+        +"2023.1.00578.S.aot default --writeQueryLog\n\n"
+        +"6) Simulate an SB with a custom configuration file:\n"
+        +"simulate_HAs.py 2023.1.00578.S HD_16329_a_09_TM1 my_config_file.cfg")
 
-parser = argparse.ArgumentParser(description="There are three ways of using this "
-                                 +"wrapper:\n1) provide the project code and SB name"
-                                 +"\n2) provide xml file\n3) provide"
-                                 +" aot file. In this case, all SBs "
+parser = argparse.ArgumentParser(description="This is a wrapper of simulateSB.py."
+                                 +" There are three ways of using it:\n"
+                                 +"1) provide the project code and SB name\n"
+                                 +"2) provide xml file\n"
+                                 +"3) provide aot file. In this case, all SBs "
                                  +"contained in the aot file will be simulated.",
                                  epilog=epilog,
                                  formatter_class=argparse.RawTextHelpFormatter)
@@ -53,13 +56,15 @@ parser.add_argument("positional_args", nargs="+",
                     help="There are three options:\n1) <project code> <SB name> "
                          +"<array config>\n2) <xml filename> <array config>"
                          +"\n3) <aot filename> <array_config>\nFor the array configuration,"
-                         +" the user can specify pre-defined configurations (e.g. 'TP',"
-                         +" '7m', 'c43-1' to 'c43-10') or specify a configuration"
-                         +" file (e.g. 'aca.cm10.pm3.cfg'). The user can also "
-                         +"specify 'default'. In that case, simulateSB.py will "
-                         +"decide which configuration it will simulate. Note that when "
-                         +"simulating an aot file, all SBs will be simulated with the"
-                         " same configuration.")
+                         +" the user has the following options:\n"
+                         +"- 'c43-1',...,'c43-10' (12m configurations)\n"
+                         +"- '7m'\n"
+                         +"- '7m_with_TP' (for 7m SBs that require TP antennas, typically high frequency)\n"
+                         +"- 'TP'\n"
+                         +"- 'default' (run simulateSB.py without specifying configuration)\n"
+                         +"- custom .cfg file provided by the user\n"
+                         +" Note that when simulating an aot file, all SBs will be simulated with the"
+                         +" same configuration.")
 parser.add_argument('--min_HA',type=float,default=None,
                     help="Smallest HA to simulate. Default is the smallest HA considered"
                         +" by the DSA.")
